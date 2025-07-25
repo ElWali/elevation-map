@@ -20,7 +20,7 @@
       font-size: 1.5rem;
     }
     #map {
-      height: 70vh;
+      height: 65vh;
       width: 100%;
     }
     .controls {
@@ -92,6 +92,15 @@
 
     <button onclick="registerUser()">تسجيل كمستخدم</button>
     <button onclick="sendBloodRequest()">طلب دم الآن</button>
+
+    <hr />
+
+    <h3>❤️ تحديث حالة المتبرع</h3>
+    <label>
+      <input type="checkbox" id="donorAvailable" />
+      أنا متاح للتبرع الآن
+    </label>
+    <button onclick="updateDonorStatus()">تحديث حالتي</button>
   </div>
 
   <div id="map"></div>
@@ -105,7 +114,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const apiBase = "http://localhost:8000"; // غيّر هذا إلى عنوان الخادم عند النشر
+    const apiBase = "http://localhost:8000"; // غيّر هذا لعنوان سيرفرك عند النشر
     let userId = null;
 
     const map = L.map("map").setView([31.7917, -7.0926], 6); // مركز المغرب
@@ -225,6 +234,85 @@
         console.error(err);
       }
     }
+
+    async function updateDonorStatus() {
+      if (!userId) return alert("يرجى التسجيل أولاً");
+      if (!navigator.geolocation) return alert("الموقع الجغرافي غير مدعوم");
+
+      const available = document.getElementById("donorAvailable").checked;
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude } = pos.coords;
+
+          try {
+            const res = await fetch(`${apiBase}/update-donor`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                user_id: userId,
+                available,
+                lat: latitude,
+                lng: longitude,
+              }),
+            });
+            if (!res.ok) throw new Error("فشل تحديث الحالة");
+            const data = await res.json();
+            alert(data.msg);
+            fetchMapData();
+          } catch (err) {
+            alert("خطأ أثناء تحديث الحالة");
+            console.error(err);
+          }
+        },
+        () => alert("تعذّر الحصول على الموقع الجغرافي")
+      );
+    }
+
+    // نظام تنبيهات مبسط لفئة الدم عند ورود طلب جديد
+    let lastRequestIds = new Set();
+
+    async function checkNewRequests() {
+      if (!userId) return;
+
+      try {
+        const res = await fetch(`${apiBase}/map-data`);
+        const data = await res.json();
+
+        const userBlood = document.getElementById("regBlood").value;
+        if (!userBlood) return;
+
+        const newRequests = data.filter(
+          (d) =>
+            d.type === "request" &&
+            d.blood === userBlood &&
+            !lastRequestIds.has(d.label)
+        );
+
+        if (newRequests.length > 0) {
+          newRequests.forEach((r) => lastRequestIds.add(r.label));
+          notifyUser(newRequests.length);
+        }
+      } catch (err) {
+        console.error("خطأ في فحص الطلبات الجديدة:", err);
+      }
+    }
+
+    function notifyUser(count) {
+      if (!("Notification" in window)) return;
+      if (Notification.permission === "granted") {
+        new Notification("منصة قلبي", {
+          body: `يوجد ${count} طلب دم جديد لفئة دمك.`,
+          icon: "https://cdn-icons-png.flaticon.com/512/2913/2913462.png",
+        });
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then((perm) => {
+          if (perm === "granted") notifyUser(count);
+        });
+      }
+    }
+
+    setInterval(checkNewRequests, 30000);
 
     function filterMarkers() {
       const selected = document.getElementById("bloodType").value;
