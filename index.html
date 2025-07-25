@@ -1,96 +1,99 @@
-
 <!DOCTYPE html>
 <html>
 <head>
-  <title>تحليل أعلى ارتفاع باستخدام Esri</title>
   <meta charset="utf-8" />
+  <title>خريطة الارتفاعات حسب دائرة</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
   <style>
     #map { height: 100vh; }
+    .popup-style { font-family: Tahoma, sans-serif; font-size: 14px; }
   </style>
 </head>
 <body>
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
 <script>
-  const ESRI_API_KEY = "🔑 ضع مفتاحك هنا 🔑";
+  const map = L.map('map').setView([28, -12], 8);
+  const ESRI_API_KEY = '🔑 ضع مفتاحك هنا';
 
-  const map = L.map('map', {
-    center: [27.95, -12.58],
-    zoom: 13
-  });
-
-  const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'ESRI Satellite'
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
   }).addTo(map);
 
-  const esriTopo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'ESRI Topo'
-  });
-
-  L.control.layers({ "Esri Satellite": esriSat, "Esri Topo": esriTopo }).addTo(map);
-
-  let centerMarker, circle, elevationMarker;
-
-  function generatePointsInCircle(center, radiusMeters, count = 100) {
-    const points = [];
-    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * 2 * Math.PI;
-      const distance = Math.random() * radiusMeters;
-      const dx = distance * Math.cos(angle);
-      const dy = distance * Math.sin(angle);
-      const deltaLat = dy / 111320;
-      const deltaLng = dx / (40075000 * Math.cos(center.lat * Math.PI / 180) / 360);
-      points.push([center.lat + deltaLat, center.lng + deltaLng]);
-    }
-    return points;
-  }
-
-  async function getElevationEsri(lat, lng) {
-    const url = `https://elevation.arcgis.com/arcgis/rest/services/WorldElevation/Terrain/ImageServer/identify?f=json&geometry=${lng},${lat}&geometryType=esriGeometryPoint&returnGeometry=false&spatialReference=4326&token=${ESRI_API_KEY}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    return data.value;
-  }
-
-  map.on('click', async function(e) {
-    if (centerMarker) map.removeLayer(centerMarker);
-    if (circle) map.removeLayer(circle);
-    if (elevationMarker) map.removeLayer(elevationMarker);
-
-    const center = e.latlng;
-
-    centerMarker = L.marker(center).addTo(map).bindPopup("مركز الدائرة").openPopup();
-    circle = L.circle(center, { radius: 1000, color: 'blue', fillOpacity: 0.1 }).addTo(map);
-
-    const points = generatePointsInCircle(center, 1000, 100);
-    let maxElevation = -Infinity;
-    let highestPoint = null;
-
-    for (const [lat, lng] of points) {
-      try {
-        const elevation = await getElevationEsri(lat, lng);
-        if (elevation > maxElevation) {
-          maxElevation = elevation;
-          highestPoint = [lat, lng];
-        }
-      } catch (error) {
-        console.error("خطأ في جلب الارتفاع:", error);
+  // أدوات الرسم
+  const drawnItems = new L.FeatureGroup().addTo(map);
+  const drawControl = new L.Control.Draw({
+    draw: {
+      polygon: false,
+      polyline: false,
+      rectangle: false,
+      marker: false,
+      circlemarker: false,
+      circle: {
+        shapeOptions: {
+          color: '#ff0000'
+        },
+        showRadius: true,
+        metric: true
       }
+    },
+    edit: {
+      featureGroup: drawnItems,
+      edit: false,
+      remove: true
+    }
+  });
+  map.addControl(drawControl);
+
+  // أخذ عينات الارتفاع
+  async function getElevationStats(circle) {
+    const center = circle.getLatLng();
+    const radius = circle.getRadius(); // بالأمتار
+    const samples = 40;
+    const points = [];
+
+    for (let i = 0; i < samples; i++) {
+      const angle = (2 * Math.PI * i) / samples;
+      const dx = radius * Math.cos(angle);
+      const dy = radius * Math.sin(angle);
+      const destination = L.latLng(center.lat + (dy / 111320), center.lng + (dx / (40075000 * Math.cos(center.lat * Math.PI / 180) / 360)));
+      points.push([destination.lng, destination.lat]);
     }
 
-    if (highestPoint) {
-      elevationMarker = L.marker(highestPoint, {
-        icon: L.icon({
-          iconUrl: "https://cdn-icons-png.flaticon.com/512/684/684908.png",
-          iconSize: [32, 32],
-          iconAnchor: [16, 32]
-        })
-      }).addTo(map)
-        .bindPopup(`أعلى نقطة داخل الدائرة: ${maxElevation.toFixed(2)} متر`).openPopup();
+    const url = `https://elevation.arcgis.com/arcgis/rest/services/Tools/ElevationSync/GPServer/Profile/execute?f=json&token=${ESRI_API_KEY}&ProfileID=1&InputLineFeatures={"features":[{"geometry":{"paths":[${JSON.stringify(points)}],"spatialReference":{"wkid":4326}}}],"geometryType":"esriGeometryPolyline","sr":{"wkid":4326}}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+    try {
+      const profile = data.results[0].value.features.map(f => f.attributes.Alt);
+      const max = Math.max(...profile);
+      const min = Math.min(...profile);
+      const avg = profile.reduce((a, b) => a + b, 0) / profile.length;
+
+      circle.bindPopup(`
+        <div class="popup-style">
+          <b>تحليل الارتفاع داخل الدائرة:</b><br>
+          ⛰ أعلى: ${max.toFixed(2)} م<br>
+          ⛰ أدنى: ${min.toFixed(2)} م<br>
+          📊 متوسط: ${avg.toFixed(2)} م
+        </div>
+      `).openPopup();
+    } catch (e) {
+      alert("حدث خطأ في تحليل البيانات. تأكد من مفتاح API.");
     }
+  }
+
+  // عند الرسم
+  map.on(L.Draw.Event.CREATED, function (event) {
+    drawnItems.clearLayers();
+    const layer = event.layer;
+    drawnItems.addLayer(layer);
+    getElevationStats(layer);
   });
 </script>
 </body>
