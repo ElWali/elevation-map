@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>منصة قلبي - التبرع بالدم</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Tajawal', sans-serif;
+      background: #f9f9f9;
+      color: #333;
+    }
+    header {
+      background-color: #b30000;
+      color: white;
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.5rem;
+    }
+    #map {
+      height: 70vh;
+      width: 100%;
+    }
+    .controls {
+      padding: 1rem;
+      background: white;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    select,
+    button,
+    input {
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    .legend {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <header>منصة قلبي - التبرع بالدم</header>
+
+  <div class="controls">
+    <label>الفئة المطلوبة:</label>
+    <select id="bloodType">
+      <option value="">جميع الفئات</option>
+      <option value="A+">A+</option>
+      <option value="A-">A-</option>
+      <option value="B+">B+</option>
+      <option value="B-">B-</option>
+      <option value="AB+">AB+</option>
+      <option value="AB-">AB-</option>
+      <option value="O+">O+</option>
+      <option value="O-">O-</option>
+    </select>
+    <button onclick="filterMarkers()">تحديث العرض</button>
+
+    <hr />
+
+    <h3>🩸 تسجيل مستخدم وطلب دم</h3>
+
+    <input type="text" id="regPhone" placeholder="رقم الهاتف" />
+    <select id="regGender">
+      <option value="neutral">غير محدد</option>
+      <option value="male">ذكر</option>
+      <option value="female">أنثى</option>
+    </select>
+    <select id="regBlood">
+      <option disabled selected>فئة الدم</option>
+      <option value="A+">A+</option>
+      <option value="A-">A-</option>
+      <option value="B+">B+</option>
+      <option value="B-">B-</option>
+      <option value="AB+">AB+</option>
+      <option value="AB-">AB-</option>
+      <option value="O+">O+</option>
+      <option value="O-">O-</option>
+    </select>
+
+    <button onclick="registerUser()">تسجيل كمستخدم</button>
+    <button onclick="sendBloodRequest()">طلب دم الآن</button>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="legend">
+    <strong>الرموز:</strong><br />
+    🩸 محتاج للدم<br />
+    ❤️ متبرع متاح<br />
+    🏥 مركز تبرع
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const apiBase = "http://localhost:8000"; // غيّر هذا إلى عنوان الخادم عند النشر
+    let userId = null;
+
+    const map = L.map("map").setView([31.7917, -7.0926], 6); // مركز المغرب
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap",
+    }).addTo(map);
+
+    const icons = {
+      request: L.divIcon({
+        html: "🩸",
+        iconSize: [20, 20],
+        className: "icon-request",
+      }),
+      donor: L.divIcon({
+        html: "❤️",
+        iconSize: [20, 20],
+        className: "icon-donor",
+      }),
+      center: L.divIcon({
+        html: "🏥",
+        iconSize: [20, 20],
+        className: "icon-center",
+      }),
+    };
+
+    let markers = [];
+
+    async function fetchMapData() {
+      try {
+        const res = await fetch(`${apiBase}/map-data`);
+        const data = await res.json();
+        renderMarkers(data);
+      } catch (err) {
+        alert("خطأ في جلب بيانات الخريطة. تأكد من تشغيل الخادم الخلفي.");
+        console.error(err);
+      }
+    }
+
+    function renderMarkers(data) {
+      markers.forEach((m) => map.removeLayer(m));
+      markers = [];
+      data.forEach((entry) => {
+        const marker = L.marker([entry.lat, entry.lng], {
+          icon: icons[entry.type],
+        }).addTo(map);
+
+        let popup = "";
+        if (entry.type === "center") {
+          popup = `<strong>${entry.name}</strong>`;
+        } else {
+          popup = `${entry.type === "request" ? "محتاج" : "متبرع"}<br>
+            الفئة: ${entry.blood}<br>
+            المعرف: ${entry.label}`;
+        }
+        marker.bindPopup(popup);
+        markers.push(marker);
+      });
+    }
+
+    async function registerUser() {
+      const phone = document.getElementById("regPhone").value.trim();
+      const gender = document.getElementById("regGender").value;
+      const blood = document.getElementById("regBlood").value;
+
+      if (!phone || !blood) {
+        alert("يرجى تعبئة رقم الهاتف وفئة الدم.");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${apiBase}/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, gender, blood_type: blood }),
+        });
+        if (!res.ok) throw new Error("فشل التسجيل");
+        const data = await res.json();
+        userId = data.id;
+        alert(`تم التسجيل بنجاح: ${userId}`);
+      } catch (err) {
+        alert("خطأ أثناء التسجيل.");
+        console.error(err);
+      }
+    }
+
+    async function sendBloodRequest() {
+      if (!userId) {
+        alert("يرجى التسجيل أولاً.");
+        return;
+      }
+      const latlng = map.getCenter();
+      const blood = document.getElementById("regBlood").value;
+      if (!blood) {
+        alert("يرجى اختيار فئة الدم.");
+        return;
+      }
+      try {
+        const res = await fetch(`${apiBase}/request-blood`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: userId,
+            blood_type: blood,
+            lat: latlng.lat,
+            lng: latlng.lng,
+            emergency: true,
+          }),
+        });
+        if (!res.ok) throw new Error("فشل إرسال الطلب");
+        const data = await res.json();
+        alert(data.msg);
+        fetchMapData();
+      } catch (err) {
+        alert("خطأ أثناء إرسال الطلب.");
+        console.error(err);
+      }
+    }
+
+    function filterMarkers() {
+      const selected = document.getElementById("bloodType").value;
+      fetch(`${apiBase}/map-data`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (!selected) renderMarkers(data);
+          else renderMarkers(data.filter((m) => m.blood === selected));
+        })
+        .catch((err) => {
+          alert("خطأ في جلب بيانات الخريطة.");
+          console.error(err);
+        });
+    }
+
+    fetchMapData();
+  </script>
+</body>
+</html>
