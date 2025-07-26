@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>منصة تبرع بالدم</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      direction: rtl;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background-color: #d32f2f;
+      color: white;
+      padding: 1em;
+      text-align: center;
+    }
+
+    #map {
+      height: 400px;
+    }
+
+    .container {
+      padding: 1em;
+    }
+
+    form {
+      margin-top: 1em;
+    }
+
+    label {
+      display: block;
+      margin: 0.5em 0 0.2em;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 0.5em;
+      margin-bottom: 1em;
+    }
+
+    .alert {
+      background: #ffeb3b;
+      color: #000;
+      padding: 0.8em;
+      margin-top: 1em;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>منصة التبرع بالدم</h1>
+  <p>ساهم في إنقاذ الأرواح</p>
+</header>
+
+<div class="container">
+  <div id="map"></div>
+
+  <div class="alert" id="notification" style="display: none;"></div>
+
+  <form id="donorForm">
+    <h2>تحديث توافر المتبرع</h2>
+    <label for="name">الاسم:</label>
+    <input type="text" id="name" required>
+
+    <label for="bloodType">فصيلة الدم:</label>
+    <select id="bloodType">
+      <option>O+</option>
+      <option>O-</option>
+      <option>A+</option>
+      <option>A-</option>
+      <option>B+</option>
+      <option>B-</option>
+      <option>AB+</option>
+      <option>AB-</option>
+    </select>
+
+    <label for="status">الحالة:</label>
+    <select id="status">
+      <option value="available">متاح</option>
+      <option value="unavailable">غير متاح</option>
+    </select>
+
+    <button type="submit">تحديث الحالة</button>
+  </form>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  // إعداد الخريطة
+  const map = L.map('map').setView([31.63, -8.0], 6); // المغرب كموقع افتراضي
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  const donorMarkers = [];
+
+  function addDonorToMap(name, bloodType, status, lat, lon) {
+    const marker = L.marker([lat, lon]).addTo(map);
+    marker.bindPopup(`<strong>${name}</strong><br>فصيلة الدم: ${bloodType}<br>الحالة: ${status === 'available' ? '✅ متاح' : '❌ غير متاح'}`);
+    donorMarkers.push(marker);
+  }
+
+  // بيانات تجريبية
+  addDonorToMap("أحمد", "A+", "available", 33.57, -7.6);
+  addDonorToMap("فاطمة", "O-", "unavailable", 30.4, -9.6);
+
+  // التعامل مع النموذج
+  document.getElementById("donorForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    const name = document.getElementById("name").value;
+    const bloodType = document.getElementById("bloodType").value;
+    const status = document.getElementById("status").value;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(position => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        addDonorToMap(name, bloodType, status, lat, lon);
+        showNotification(`تم تحديث حالة ${name} بنجاح!`);
+      }, () => {
+        showNotification("تعذر تحديد الموقع الجغرافي.");
+      });
+    } else {
+      showNotification("المتصفح لا يدعم تحديد الموقع.");
+    }
+
+    document.getElementById("donorForm").reset();
+  });
+
+  function showNotification(msg) {
+    const note = document.getElementById("notification");
+    note.textContent = msg;
+    note.style.display = "block";
+    setTimeout(() => {
+      note.style.display = "none";
+    }, 4000);
+  }
+</script>
+
+</body>
+</html>
